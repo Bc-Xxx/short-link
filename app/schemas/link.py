@@ -28,6 +28,7 @@ class LinkResponse(BaseModel):
     safety_level: str = "待分析"
     safety_score: Optional[int] = None
     safety_reason: Optional[str] = ""
+    click_count: int = 0  # 总访问次数
     created_at: datetime
 
     class Config:
