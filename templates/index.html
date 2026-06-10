@@ -565,7 +565,7 @@
                                     ${window.location.origin}/${link.short_code}
                                 </td>
                                 <td class="orig-url" title="${link.original_url}">${link.original_url}</td>
-                                <td class="clicks-cell">0</td>
+                                <td class="clicks-cell">${link.click_count || 0}</td>
                                 <td>${safetyBadge(link.safety_level, link.safety_score)}</td>
                                 <td class="actions">
                                     <button class="btn btn-outline btn-sm" onclick="showDetail(${link.id})">详情</button>
