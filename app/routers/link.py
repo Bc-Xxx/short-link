@@ -1,6 +1,7 @@
 from app.utils.ai_analyzer import analyze_url_safety, fetch_page_title
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.database import get_db, SessionLocal
 from app.models.link import Link
 from starlette.requests import Request
@@ -74,9 +75,13 @@ def list_my_links(
         .limit(limit)
         .all()
     )
-    # 转换成响应格式
-    link_responses = [
-        LinkResponse(
+    # 转换成响应格式（带上点击次数）
+    link_responses = []
+    for link in links:
+        click_count = db.query(func.count(Click.id)).filter(
+            Click.link_id == link.id
+        ).scalar() or 0
+        link_responses.append(LinkResponse(
             id=link.id,
             short_code=link.short_code,
             original_url=link.original_url,
@@ -85,10 +90,9 @@ def list_my_links(
             safety_level=link.safety_level or "待分析",
             safety_score=link.safety_score,
             safety_reason=link.safety_reason or "",
+            click_count=click_count,
             created_at=link.created_at
-        )
-        for link in links
-    ]
+        ))
     return {"total": total, "links": link_responses}
 
 
@@ -131,6 +135,9 @@ def get_link_detail(
     ).first()
     if not link:
         raise HTTPException(status_code=404, detail="链接不存在")
+    click_count = db.query(func.count(Click.id)).filter(
+        Click.link_id == link.id
+    ).scalar() or 0
     return LinkResponse(
         id=link.id,
         short_code=link.short_code,
@@ -140,6 +147,7 @@ def get_link_detail(
         safety_level=link.safety_level or "待分析",
         safety_score=link.safety_score,
         safety_reason=link.safety_reason or "",
+        click_count=click_count,
         created_at=link.created_at
     )
 
