@@ -9,6 +9,9 @@ FROM python:3.11-slim
 # 设置工作目录
 WORKDIR /app
 
+# 安装系统依赖（二维码识别需要 libzbar）
+RUN apt-get update && apt-get install -y libzbar0 && rm -rf /var/lib/apt/lists/*
+
 # 用清华镜像源加速 pip 安装
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
