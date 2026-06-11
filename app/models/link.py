@@ -59,5 +59,5 @@ class Link(Base):
     # 关系：这个链接的创建者（多对一）
     owner = relationship("User", back_populates="links")
 
-    # 关系：这个链接的所有访问记录（一对多）
-    clicks = relationship("Click", back_populates="link")
+    # 关系：这个链接的所有访问记录（一对多，级联删除）
+    clicks = relationship("Click", back_populates="link", cascade="all, delete-orphan")
