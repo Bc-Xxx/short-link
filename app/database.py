@@ -3,7 +3,7 @@
 # 作用：创建数据库引擎、会话工厂，提供 get_db 依赖注入
 # ============================================================
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 from app.config import get_settings
 
@@ -21,6 +21,14 @@ engine = create_engine(
     settings.DATABASE_URL,
     connect_args=connect_args
 )
+
+# SQLite 启用外键约束支持（默认关闭）
+if settings.DATABASE_URL.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 # 会话工厂
 # - 每次调用 SessionLocal() 就创建一个新的数据库会话
