@@ -6,6 +6,7 @@
 
 - **🔐 用户系统** — 注册 / 登录（JWT 认证，密码 bcrypt 加密）
 - **🔗 短链接管理** — 创建、查看、删除自己的短链接
+- **📱 二维码识别** — 上传二维码图片自动识别URL并创建短链接
 - **🔄 302 重定向** — 访问短码自动跳转到原始链接
 - **📊 访问统计** — 总访问量、今日访问量、近 7 天每日趋势
 - **🤖 AI 安全分析** — 创建链接时自动调用通义千问大模型，分析目标 URL 安全性（评分 + 等级 + 理由）
@@ -90,6 +91,7 @@ uvicorn app.main:app --reload --port 8000
 | POST | `/auth/register` | 用户注册 | ❌ |
 | POST | `/auth/login` | 用户登录，返回 Token | ❌ |
 | POST | `/links` | 创建短链接 | ✅ |
+| POST | `/links/from-qrcode` | 从二维码图片创建短链接 | ✅ |
 | GET | `/links` | 查看我的链接列表 | ✅ |
 | GET | `/links/{id}` | 查看链接详情 | ✅ |
 | DELETE | `/links/{id}` | 删除链接 | ✅ |
@@ -122,6 +124,14 @@ curl -X POST http://localhost:8000/links \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <your-token>" \
   -d '{"original_url": "https://example.com/long-url"}'
+```
+
+**从二维码图片创建短链接（需 Token）**
+
+```bash
+curl -X POST http://localhost:8000/links/from-qrcode \
+  -H "Authorization: Bearer <your-token>" \
+  -F "file=@qrcode.png"
 ```
 
 **查看统计数据**
