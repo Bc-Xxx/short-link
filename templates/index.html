@@ -331,6 +331,14 @@
                             <span id="create-btn-loading" class="loading" style="display:none"></span>
                         </button>
                     </div>
+                    <div class="qr-upload-section" style="margin-top: 12px; display: flex; align-items: center; gap: 12px;">
+                        <span style="color: var(--gray-500); font-size: 14px;">或</span>
+                        <label class="btn btn-outline" style="cursor: pointer;">
+                            📱 上传二维码
+                            <input type="file" id="qr-file" accept="image/*" style="display: none;" onchange="uploadQRCode()">
+                        </label>
+                        <span id="qr-file-name" style="color: var(--gray-400); font-size: 13px;"></span>
+                    </div>
                     <div class="result-box" id="result-box">
                         <span>✅ 已生成：</span>
                         <span class="short-url" id="result-url"></span>
@@ -512,6 +520,49 @@
                 btn.disabled = false;
                 document.getElementById('create-btn-text').style.display = 'inline';
                 document.getElementById('create-btn-loading').style.display = 'none';
+            }
+        }
+
+        // ===== 上传二维码创建短链接 =====
+        async function uploadQRCode() {
+            const fileInput = document.getElementById('qr-file');
+            const file = fileInput.files[0];
+            if (!file) return;
+            
+            // 显示文件名
+            document.getElementById('qr-file-name').textContent = file.name;
+            
+            // 创建FormData
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const res = await fetch('/links/from-qrcode', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + TOKEN
+                    },
+                    body: formData
+                });
+                
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || '上传失败');
+                
+                // 显示结果
+                const box = document.getElementById('result-box');
+                const currentBase = window.location.origin;
+                document.getElementById('result-url').textContent = currentBase + '/' + data.short_code;
+                box.classList.add('show');
+                
+                // 清空输入框和文件
+                document.getElementById('create-url').value = '';
+                fileInput.value = '';
+                document.getElementById('qr-file-name').textContent = '';
+                
+                showToast('二维码识别成功，短链接已生成！', 'success');
+                loadLinks();
+            } catch (err) {
+                showToast(err.message, 'error');
             }
         }
 
