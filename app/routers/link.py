@@ -1,5 +1,5 @@
 from app.utils.ai_analyzer import analyze_url_safety, fetch_page_title
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db, SessionLocal
@@ -13,6 +13,7 @@ from app.models.user import User
 from app.utils.short_code import generate_short_code
 from app.config import get_settings
 from starlette.responses import RedirectResponse
+from app.utils.qr_scanner import scan_qrcode_from_bytes
 
 settings = get_settings()
 
@@ -42,6 +43,51 @@ def create_link(
     # ★ 新增：后台触发AI安全分析
     background_tasks.add_task(analyze_and_update_link, new_link.id,
                               new_link.original_url)
+    short_url = f"{settings.BASE_URL}/{short_code}"
+    return LinkResponse(
+        id=new_link.id,
+        short_code=new_link.short_code,
+        original_url=new_link.original_url,
+        short_url=short_url,
+        title=new_link.title or "",
+        safety_level=new_link.safety_level or "待分析",
+        safety_score=new_link.safety_score,
+        safety_reason=new_link.safety_reason or "",
+        created_at=new_link.created_at
+    )
+
+
+# 从二维码图片创建短链接
+@router.post('/links/from-qrcode')
+def create_link_from_qrcode(
+        file: UploadFile = File(...),
+        background_tasks: BackgroundTasks = None,
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    # 读取上传的图片文件
+    image_bytes = file.file.read()
+    
+    # 识别二维码内容
+    original_url = scan_qrcode_from_bytes(image_bytes)
+    if not original_url:
+        raise HTTPException(status_code=400, detail="无法识别二维码或二维码不包含URL")
+    
+    # 复用现有的短链接创建逻辑
+    short_code = generate_short_code()
+    new_link = Link(
+        short_code=short_code,
+        original_url=original_url,
+        user_id=current_user.id
+    )
+    db.add(new_link)
+    db.commit()
+    db.refresh(new_link)
+    
+    # 后台触发AI安全分析
+    if background_tasks:
+        background_tasks.add_task(analyze_and_update_link, new_link.id, new_link.original_url)
+    
     short_url = f"{settings.BASE_URL}/{short_code}"
     return LinkResponse(
         id=new_link.id,
