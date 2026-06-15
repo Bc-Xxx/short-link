@@ -14,8 +14,19 @@ from app.utils.short_code import generate_short_code
 from app.config import get_settings
 from starlette.responses import RedirectResponse
 from app.utils.qr_scanner import scan_qrcode_from_bytes
+import redis
 
 settings = get_settings()
+
+# ---- Redis 缓存连接 ----
+redis_client = redis.Redis(
+    host=settings.REDIS_HOST,
+    port=settings.REDIS_PORT,
+    db=settings.REDIS_DB,
+    decode_responses=True  # 自动把 bytes 转成 str
+)
+CACHE_TTL = 3600       # 正常缓存 1 小时
+NOT_EXIST_TTL = 60     # 空值缓存 60 秒（防穿透）
 
 router = APIRouter()
 
@@ -145,27 +156,56 @@ def list_my_links(
 @router.get("/{short_code}")
 def redirect_to_url(
         short_code: str,
-        request: Request,  # 获取请求信息
+        request: Request,
+        background_tasks: BackgroundTasks,
         db: Session = Depends(get_db)
 ):
-    #  根据短码查数据库
-    link = db.query(Link).filter(Link.short_code == short_code).first()
-    # 找不到就 404
-    if not link:
+    # 1. 先查 Redis 缓存
+    cached_url = redis_client.get(f"link:{short_code}")
+
+    if cached_url == "NOT_EXIST":
+        # 缓存标记了"不存在"，直接返回 404，不查库
         raise HTTPException(status_code=404, detail="链接不存在")
-    #  检查是否过期
-    #  记录这次访问
-    click = Click(
-        link_id=link.id,
-        clicked_at=datetime.now(),
-        ip_address=request.client.host,  # 访问者IP
-        user_agent=request.headers.get("user-agent", ""),  # 浏览器信息
-        referer=request.headers.get("referer", ""),  # 从哪来的
-    )
-    db.add(click)
-    db.commit()
-    # 302 重定向
+
+    if cached_url:
+        # 缓存命中，直接跳转，异步记录点击
+        background_tasks.add_task(record_click, short_code, request)
+        return RedirectResponse(url=cached_url, status_code=302)
+
+    # 2. 缓存未命中，查数据库
+    link = db.query(Link).filter(Link.short_code == short_code).first()
+
+    if not link:
+        # 数据库也没有 → 缓存空值，防止穿透
+        redis_client.setex(f"link:{short_code}", NOT_EXIST_TTL, "NOT_EXIST")
+        raise HTTPException(status_code=404, detail="链接不存在")
+
+    # 3. 数据库有 → 写入缓存
+    redis_client.setex(f"link:{short_code}", CACHE_TTL, link.original_url)
+
+    # 4. 异步记录点击
+    background_tasks.add_task(record_click, short_code, request)
+
     return RedirectResponse(url=link.original_url, status_code=302)
+
+
+def record_click(short_code: str, request: Request):
+    """后台任务：异步记录点击，不阻塞重定向响应"""
+    db = SessionLocal()
+    try:
+        link = db.query(Link).filter(Link.short_code == short_code).first()
+        if link:
+            click = Click(
+                link_id=link.id,
+                clicked_at=datetime.now(),
+                ip_address=request.client.host,
+                user_agent=request.headers.get("user-agent", ""),
+                referer=request.headers.get("referer", ""),
+            )
+            db.add(click)
+            db.commit()
+    finally:
+        db.close()
 
 
 # 查看单个链接详情
@@ -212,6 +252,8 @@ def delete_link(
     if not link:
         raise HTTPException(status_code=404, detail="链接不存在")
 
+    # 删除缓存
+    redis_client.delete(f"link:{link.short_code}")
     db.delete(link)
     db.commit()
     return {"detail": "删除成功"}
