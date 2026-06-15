@@ -18,13 +18,20 @@ import redis
 
 settings = get_settings()
 
-# ---- Redis 缓存连接 ----
-redis_client = redis.Redis(
-    host=settings.REDIS_HOST,
-    port=settings.REDIS_PORT,
-    db=settings.REDIS_DB,
-    decode_responses=True  # 自动把 bytes 转成 str
-)
+# ---- Redis 缓存连接（可选） ----
+# Redis 可用时走缓存，不可用时降级为直接查数据库
+redis_client = None
+try:
+    if settings.REDIS_URL:
+        redis_client = redis.from_url(settings.REDIS_URL, decode_responses=True)
+    else:
+        redis_client = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
+    redis_client.ping()  # 测试连接
+    print("✅ Redis 连接成功")
+except Exception as e:
+    redis_client = None
+    print(f"⚠️ Redis 不可用，降级为直接查数据库: {e}")
+
 CACHE_TTL = 3600       # 正常缓存 1 小时
 NOT_EXIST_TTL = 60     # 空值缓存 60 秒（防穿透）
 
@@ -160,28 +167,29 @@ def redirect_to_url(
         background_tasks: BackgroundTasks,
         db: Session = Depends(get_db)
 ):
-    # 1. 先查 Redis 缓存
-    cached_url = redis_client.get(f"link:{short_code}")
+    # 1. 先查 Redis 缓存（Redis 不可用时跳过）
+    if redis_client:
+        cached_url = redis_client.get(f"link:{short_code}")
 
-    if cached_url == "NOT_EXIST":
-        # 缓存标记了"不存在"，直接返回 404，不查库
-        raise HTTPException(status_code=404, detail="链接不存在")
+        if cached_url == "NOT_EXIST":
+            raise HTTPException(status_code=404, detail="链接不存在")
 
-    if cached_url:
-        # 缓存命中，直接跳转，异步记录点击
-        background_tasks.add_task(record_click, short_code, request)
-        return RedirectResponse(url=cached_url, status_code=302)
+        if cached_url:
+            background_tasks.add_task(record_click, short_code, request)
+            return RedirectResponse(url=cached_url, status_code=302)
 
-    # 2. 缓存未命中，查数据库
+    # 2. 缓存未命中（或 Redis 不可用），查数据库
     link = db.query(Link).filter(Link.short_code == short_code).first()
 
     if not link:
-        # 数据库也没有 → 缓存空值，防止穿透
-        redis_client.setex(f"link:{short_code}", NOT_EXIST_TTL, "NOT_EXIST")
+        # 数据库也没有 → 缓存空值（Redis 可用时）
+        if redis_client:
+            redis_client.setex(f"link:{short_code}", NOT_EXIST_TTL, "NOT_EXIST")
         raise HTTPException(status_code=404, detail="链接不存在")
 
-    # 3. 数据库有 → 写入缓存
-    redis_client.setex(f"link:{short_code}", CACHE_TTL, link.original_url)
+    # 3. 数据库有 → 写入缓存（Redis 可用时）
+    if redis_client:
+        redis_client.setex(f"link:{short_code}", CACHE_TTL, link.original_url)
 
     # 4. 异步记录点击
     background_tasks.add_task(record_click, short_code, request)
@@ -252,8 +260,9 @@ def delete_link(
     if not link:
         raise HTTPException(status_code=404, detail="链接不存在")
 
-    # 删除缓存
-    redis_client.delete(f"link:{link.short_code}")
+    # 删除缓存（Redis 可用时）
+    if redis_client:
+        redis_client.delete(f"link:{link.short_code}")
     db.delete(link)
     db.commit()
     return {"detail": "删除成功"}
