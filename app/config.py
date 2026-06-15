@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     # 通义千问 API Key（AI 安全分析用）
     DASHSCOPE_API_KEY: str = ""
 
+    # ---- Redis 缓存配置 ----
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+
     # ---- 部署相关配置 ----
 
     # 短链接完整地址的前缀（部署上线后改成你的域名）
