@@ -30,9 +30,8 @@ class Settings(BaseSettings):
     DASHSCOPE_API_KEY: str = ""
 
     # ---- Redis 缓存配置 ----
-    REDIS_HOST: str = "localhost"
-    REDIS_PORT: int = 6379
-    REDIS_DB: int = 0
+    # Railway 会自动注入 REDIS_URL，本地开发用 REDIS_HOST/PORT/DB
+    REDIS_URL: str = ""
 
     # ---- 部署相关配置 ----
 
